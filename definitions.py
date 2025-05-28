@@ -17,9 +17,11 @@ new_calc_train_path = os.path.join(data_root, 'new_calc_case_description_train_s
 new_calc_test_path = os.path.join(data_root, 'new_calc_case_description_test_set.csv')
 
 # Pixel info files
-mass_pixels_path = os.path.join(data_root, 'mass_pixels.csv')
-calc_pixels_path = os.path.join(data_root, 'calc_pixels.csv')
+mass_train_pixels_path = os.path.join(data_root, 'mass_train_pixels.csv')
+mass_test_pixels_path = os.path.join(data_root, 'mass_test_pixels.csv')
+calc_train_pixels_path = os.path.join(data_root, 'calc_train_pixels.csv')
+calc_test_pixels_path = os.path.join(data_root, 'calc_test_pixels.csv')
 
 # Define the target size
-target_size = (224, 224, 3)
+target_size = (128, 128, 3)
 kernel_size = (3, 3)
