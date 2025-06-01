@@ -25,6 +25,12 @@ calc_test_pixels_path = os.path.join(data_root, 'calc_test_pixels.csv')
 # Tensor data
 mass_train_tensor_path = os.path.join(data_root, 'mass_tensor', 'train')
 mass_test_tensor_path = os.path.join(data_root, 'mass_tensor', 'test')
+calc_train_tensor_path = os.path.join(data_root, 'calc_tensor', 'train')
+calc_test_tensor_path = os.path.join(data_root, 'calc_tensor', 'test')
+
+# Model data
+mass_model_path = os.path.join(data_root, 'mass_model')
+calc_model_path = os.path.join(data_root, 'calc_model')
 
 # Define the target size
 target_size = (128, 128, 3)
