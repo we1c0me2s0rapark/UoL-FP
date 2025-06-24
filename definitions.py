@@ -1,6 +1,6 @@
 import os
 
-data_root = os.path.join(os.path.normpath(os.path.expanduser("~/Desktop")), 'CBIS-DDSM', 'manifest-1748122768688')
+data_root = os.path.join('/mnt', 'c', 'Users', 'lejam', 'Desktop', 'CBIS-DDSM', 'manifest-1748122768688')
 
 meta_path = os.path.join(data_root, 'metadata.csv')
 
