@@ -1,5 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras import layers, models, applications
+from keras.saving import register_keras_serializable
 
 # ========= Utility Functions and Layers ==========
 
@@ -54,11 +55,17 @@ def decoder_block(x, skip, filters):
 
 # ========== U-Net Model Class ==========
 
+@register_keras_serializable(package="Custom")
 class ModifiedUNet(tf.keras.Model):
-    def __init__(self, input_shape=(256, 256, 3)):
-        super(ModifiedUNet, self).__init__()
+    def __init__(self, input_shape=(256, 256, 3), name=None, **kwargs):
+        super(ModifiedUNet, self).__init__(name=name, **kwargs)
         self.input_shape_ = input_shape
-        self.model = self.build_model()
+        self.model = None
+
+    def build(self, input_shape):
+        if self.model is None:
+            self.model = self.build_model()
+        super().build(input_shape)
 
     def build_model(self):
         inputs = layers.Input(shape=self.input_shape_)
@@ -81,10 +88,32 @@ class ModifiedUNet(tf.keras.Model):
         return models.Model(inputs, outputs, name="Modified_U-Net")
 
     def call(self, inputs):
+        if self.model is None:
+            self.build(inputs.shape)
         return self.model(inputs)
+
+    def get_config(self):
+        config = super().get_config()
+        config.update({
+            "input_shape": self.input_shape_
+        })
+        return config
+
+    @classmethod
+    def from_config(cls, config, custom_objects=None):
+        print(f"Config passed to from_config: {config}")
+        
+        # This part is still necessary for custom Model subclasses,
+        # even if not using @register_keras_serializable, because
+        # Keras needs to know how to rebuild the 'internal_model'
+        # which isn't automatically handled by default.
+        input_shape = config.pop("input_shape", (128, 128, 3))
+        instance = cls(input_shape=input_shape, **config)
+        return instance
 
 # ========== Double U-Net Model Class ==========
 
+@register_keras_serializable(package="Custom")
 class DoubleUNet(tf.keras.Model):
     def __init__(self, input_shape=(256, 256, 3)):
         super(DoubleUNet, self).__init__()
