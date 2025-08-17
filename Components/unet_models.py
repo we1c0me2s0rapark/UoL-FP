@@ -2,52 +2,154 @@ import tensorflow as tf
 from tensorflow.keras import layers, models, applications
 from keras.saving import register_keras_serializable
 
-# ========= Utility Functions and Layers ==========
+#
+# @brief A collection of utility functions and custom layers for building complex
+# deep learning architectures, particularly U-Net and its variants.
+#
 
 class ResizeToMatch(layers.Layer):
+    """
+    A custom Keras layer to resize a source tensor to match the spatial dimensions
+    of a target tensor. This is useful for creating skip connections where feature maps
+    have different resolutions.
+    """
     def call(self, inputs):
+        """
+        Resizes the source tensor to match the spatial dimensions of the target tensor.
+
+        Args:
+            inputs (list): A list containing two tensors:
+                - source (tf.Tensor): The tensor to be resized.
+                - target (tf.Tensor): The tensor whose shape to match.
+
+        Returns:
+            tf.Tensor: The resized source tensor.
+        """
         source, target = inputs
+        # Get the height and width from the target tensor's shape.
         target_shape = tf.shape(target)
+        # Resize the source tensor to the target's height and width using bilinear interpolation.
         return tf.image.resize(source, (target_shape[1], target_shape[2]), method='bilinear')
 
 def double_conv_block(x, filters, padding="same"):
+    """
+    A standard double 2D convolutional block, commonly used in U-Net architectures.
+
+    This block consists of two convolutional layers with ReLU activation, which
+    helps in feature extraction.
+
+    Args:
+        x (tf.Tensor): The input tensor.
+        filters (int): The number of filters for the convolutional layers.
+        padding (str): Padding type, typically "same" to preserve spatial dimensions.
+
+    Returns:
+        tf.Tensor: The output of the double convolutional block.
+    """
     x = layers.Conv2D(filters, 3, padding=padding, activation='relu',
-                      kernel_initializer='he_normal')(x)
+                     kernel_initializer='he_normal')(x)
     x = layers.Conv2D(filters, 3, padding=padding, activation='relu',
-                      kernel_initializer='he_normal')(x)
+                     kernel_initializer='he_normal')(x)
     return x
 
 def downsample_block(x, filters, padding="same"):
+    """
+    A downsampling block for the U-Net encoder path.
+
+    It applies a double convolutional block followed by max-pooling to reduce
+    the spatial dimensions and increase the number of feature maps.
+
+    Args:
+        x (tf.Tensor): The input tensor.
+        filters (int): The number of filters for the convolutional layers.
+        padding (str): Padding type, typically "same".
+
+    Returns:
+        tuple: A tuple containing two tensors:
+            - The feature map before max-pooling (for the skip connection).
+            - The downsampled output.
+    """
     f = double_conv_block(x, filters, padding)
     p = layers.MaxPool2D(pool_size=(2, 2))(f)
     p = layers.Dropout(0.3)(p)
     return f, p
 
 def upsample_block(x, skip, filters, padding="same"):
+    """
+    An upsampling block for the U-Net decoder path.
+
+    It uses a transposed convolution to increase spatial dimensions, concatenates
+    the result with a skip connection from the encoder, and then applies a
+    double convolutional block.
+
+    Args:
+        x (tf.Tensor): The input tensor from the previous decoder block.
+        skip (tf.Tensor): The feature map from the corresponding encoder block
+                          for the skip connection.
+        filters (int): The number of filters for the convolutional layers.
+        padding (str): Padding type, typically "same".
+
+    Returns:
+        tf.Tensor: The output of the upsampling block.
+    """
+    # Use Conv2DTranspose for upsampling
     x = layers.Conv2DTranspose(filters, kernel_size=3, strides=2,
                                padding=padding, activation='relu')(x)
+    # Concatenate the upsampled tensor with the skip connection
     x = layers.Concatenate()([x, skip])
     x = layers.Dropout(0.3)(x)
+    # Apply a double convolutional block
     x = double_conv_block(x, filters, padding)
     return x
 
 def ASPP(x, filters):
+    """
+    Atrous Spatial Pyramid Pooling (ASPP) module.
+
+    This module captures multi-scale context by applying parallel atrous convolutions
+    with different dilation rates, and then concatenating their outputs. This is
+    useful for handling objects of various sizes.
+
+    Args:
+        x (tf.Tensor): The input tensor, typically from the bottleneck of the encoder.
+        filters (int): The number of filters for the convolutional layers in the ASPP module.
+
+    Returns:
+        tf.Tensor: The output tensor with enhanced multi-scale context.
+    """
+    # Atrous convolutions with different dilation rates.
     y1 = layers.Conv2D(filters, 1, padding="same", activation='relu')(x)
     y2 = layers.Conv2D(filters, 3, dilation_rate=6, padding="same", activation='relu')(x)
     y3 = layers.Conv2D(filters, 3, dilation_rate=12, padding="same", activation='relu')(x)
     y4 = layers.Conv2D(filters, 3, dilation_rate=18, padding="same", activation='relu')(x)
 
+    # Image-level features with global average pooling.
     y5 = layers.GlobalAveragePooling2D()(x)
     y5 = layers.Reshape((1, 1, y5.shape[-1]))(y5)
     y5 = layers.Conv2D(filters, 1, padding="same", activation='relu')(y5)
     y5 = ResizeToMatch()([y5, x])
 
+    # Concatenate all features and apply a final convolution.
     y = layers.Concatenate()([y1, y2, y3, y4, y5])
     return layers.Conv2D(filters, 1, padding="same", activation='relu')(y)
 
 def decoder_block(x, skip, filters):
+    """
+    A decoder block for the Double U-Net, which combines a transposed convolution,
+    a resized skip connection, and a double convolutional block.
+
+    Args:
+        x (tf.Tensor): The input tensor from the previous decoder block.
+        skip (tf.Tensor): The feature map from the corresponding encoder block.
+        filters (int): The number of filters for the convolutional layers.
+
+    Returns:
+        tf.Tensor: The output of the decoder block.
+    """
     x = layers.Conv2DTranspose(filters, (2, 2), strides=2, padding='same')(x)
+    # Resize the skip connection to match the upsampled tensor.
     skip_resized = ResizeToMatch()([skip, x])
+    # Concatenate the tensors and apply convolutions.
     x = layers.Concatenate()([x, skip_resized])
     x = layers.Conv2D(filters, 3, padding='same', activation='relu')(x)
     x = layers.Conv2D(filters, 3, padding='same', activation='relu')(x)
@@ -57,42 +159,84 @@ def decoder_block(x, skip, filters):
 
 @register_keras_serializable(package="Custom")
 class ModifiedUNet(tf.keras.Model):
+    """
+    A standard U-Net model architecture for image segmentation, implemented as a
+    Keras Model subclass for flexibility and customisation.
+
+    The U-Net is an encoder-decoder network with skip connections that are crucial
+    for preserving spatial information and improving segmentation accuracy.
+    """
     def __init__(self, input_shape=(256, 256, 3), name=None, **kwargs):
+        """
+        Initialises the Modified U-Net model.
+
+        Args:
+            input_shape (tuple): The shape of the input images (height, width, channels).
+            name (str, optional): The name of the model.
+        """
         super(ModifiedUNet, self).__init__(name=name, **kwargs)
         self.input_shape_ = input_shape
         self.model = None
 
     def build(self, input_shape):
+        """
+        Builds the underlying Keras model instance. This is called automatically
+        by Keras the first time the model is used.
+        """
         if self.model is None:
             self.model = self.build_model()
         super().build(input_shape)
 
     def build_model(self):
+        """
+        Defines the U-Net architecture.
+
+        Returns:
+            tf.keras.Model: The constructed U-Net model.
+        """
         inputs = layers.Input(shape=self.input_shape_)
         filters = [64, 128, 256, 512, 1024]
 
+        # Encoder (Contracting Path)
+        # Each block downsamples the feature map and stores a skip connection.
         f1, p1 = downsample_block(inputs, filters[0])
         f2, p2 = downsample_block(p1, filters[1])
         f3, p3 = downsample_block(p2, filters[2])
         f4, p4 = downsample_block(p3, filters[3])
 
+        # Bottleneck
+        # This is the deepest part of the network, capturing high-level features.
         bottleneck = double_conv_block(p4, filters[4])
 
+        # Decoder (Expansive Path) with skip connections
+        # The upsampling blocks increase the spatial resolution while incorporating
+        # features from the encoder via skip connections.
         u6 = upsample_block(bottleneck, f4, filters[3])
         u7 = upsample_block(u6, f3, filters[2])
         u8 = upsample_block(u7, f2, filters[1])
         u9 = upsample_block(u8, f1, filters[0])
 
+        # Final output layer
+        # A 1x1 convolution with a sigmoid activation produces the final
+        # segmentation mask with values between 0 and 1.
         outputs = layers.Conv2D(1, 1, activation='sigmoid')(u9)
 
         return models.Model(inputs, outputs, name="Modified_U-Net")
 
     def call(self, inputs):
+        """
+        Defines the forward pass of the model. It simply calls the underlying
+        built model with the given inputs.
+        """
         if self.model is None:
             self.build(inputs.shape)
         return self.model(inputs)
 
     def get_config(self):
+        """
+        Returns the configuration of the layer for serialisation. This allows
+        the model to be saved and loaded correctly.
+        """
         config = super().get_config()
         config.update({
             "input_shape": self.input_shape_
@@ -101,6 +245,10 @@ class ModifiedUNet(tf.keras.Model):
 
     @classmethod
     def from_config(cls, config, custom_objects=None):
+        """
+        Creates a layer instance from its configuration. This is used by Keras
+        when loading a model from a saved file.
+        """
         print(f"Config passed to from_config: {config}")
         
         # This part is still necessary for custom Model subclasses,
@@ -110,100 +258,3 @@ class ModifiedUNet(tf.keras.Model):
         input_shape = config.pop("input_shape", (128, 128, 3))
         instance = cls(input_shape=input_shape, **config)
         return instance
-
-# ========== Double U-Net Model Class ==========
-
-@register_keras_serializable(package="Custom")
-class DoubleUNet(tf.keras.Model):
-    def __init__(self, input_shape=(256, 256, 3)):
-        super(DoubleUNet, self).__init__()
-        self.input_shape_ = input_shape
-        self.model = self.build_model()
-
-    def build_encoder(self, name):
-        inputs = layers.Input(shape=self.input_shape_)
-        if name == "xception":
-            base = applications.Xception(include_top=False, weights="imagenet", input_tensor=inputs)
-            skips = [base.get_layer(n).output for n in [
-                "block1_conv1_act", "block3_sepconv2_act", "block4_sepconv2_act", "block13_sepconv2_act"
-            ]]
-            output = base.get_layer("block14_sepconv2_act").output
-        elif name == "densenet":
-            base = applications.DenseNet121(include_top=False, weights="imagenet", input_tensor=inputs)
-            skips = [base.get_layer(n).output for n in [
-                "conv1_relu", "pool2_relu", "pool3_relu", "pool4_relu"
-            ]]
-            output = base.get_layer("relu").output
-        elif name == "vgg19":
-            base = applications.VGG19(include_top=False, weights="imagenet", input_tensor=inputs)
-            skips = [base.get_layer(n).output for n in [
-                "block1_conv2", "block2_conv2", "block3_conv4", "block4_conv4"
-            ]]
-            output = base.get_layer("block5_conv4").output
-        else:
-            raise ValueError(f"Unsupported encoder: {name}")
-        return models.Model(inputs=inputs, outputs=[skips, output], name=f"{name}_encoder")
-
-    def build_decoder(self, x, skips):
-        x = ASPP(x, 256)
-        x = decoder_block(x, skips[-1], 256)
-        x = decoder_block(x, skips[-2], 128)
-        x = decoder_block(x, skips[-3], 64)
-        x = decoder_block(x, skips[-4], 32)
-        return layers.Conv2D(1, 1, activation="sigmoid")(x)
-
-    def build_model(self):
-        inputs = layers.Input(shape=self.input_shape_)
-        size = (self.input_shape_[0], self.input_shape_[1])
-
-        encoders = {
-            'x': self.build_encoder("xception"),
-            'd': self.build_encoder("densenet"),
-            'v': self.build_encoder("vgg19")
-        }
-
-        # === First Pass ===
-        skips_x, out_x = encoders['x'](inputs)
-        skips_d, out_d = encoders['d'](inputs)
-        skips_v, out_v = encoders['v'](inputs)
-
-        out_x_dec = self.build_decoder(out_x, skips_x)
-        out_d_dec = self.build_decoder(out_d, skips_d)
-        out_v_dec = self.build_decoder(out_v, skips_v)
-
-        out_x_dec = layers.Lambda(lambda t: tf.image.resize(t, size))(out_x_dec)
-        out_d_dec = layers.Lambda(lambda t: tf.image.resize(t, size))(out_d_dec)
-        out_v_dec = layers.Lambda(lambda t: tf.image.resize(t, size))(out_v_dec)
-
-        out1 = layers.Conv2D(1, 1, activation='sigmoid')(
-            layers.Concatenate()([out_x_dec, out_d_dec, out_v_dec])
-        )
-
-        # === Second Pass ===
-        masked_input = layers.Add()([
-            inputs,
-            layers.Multiply()([inputs, out1])
-        ])
-
-        skips_x2, out_x2 = encoders['x'](masked_input)
-        skips_d2, out_d2 = encoders['d'](masked_input)
-        skips_v2, out_v2 = encoders['v'](masked_input)
-
-        out_x2_dec = self.build_decoder(out_x2, skips_x2)
-        out_d2_dec = self.build_decoder(out_d2, skips_d2)
-        out_v2_dec = self.build_decoder(out_v2, skips_v2)
-
-        out_x2_dec = layers.Lambda(lambda t: tf.image.resize(t, size))(out_x2_dec)
-        out_d2_dec = layers.Lambda(lambda t: tf.image.resize(t, size))(out_d2_dec)
-        out_v2_dec = layers.Lambda(lambda t: tf.image.resize(t, size))(out_v2_dec)
-
-        out2 = layers.Conv2D(1, 1, activation='sigmoid')(
-            layers.Concatenate()([out_x2_dec, out_d2_dec, out_v2_dec])
-        )
-
-        final = layers.Conv2D(1, 1, activation='sigmoid')(layers.Concatenate()([out1, out2]))
-
-        return models.Model(inputs=inputs, outputs=final, name="Double_U-Net")
-
-    def call(self, inputs):
-        return self.model(inputs)
