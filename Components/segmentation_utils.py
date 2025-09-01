@@ -1,27 +1,28 @@
 #
-# @brief Import all necessary libraries.
+# @brief Import all required libraries.
 #
-# TensorFlow is used for tensor operations, model building, and training.
+# TensorFlow is used for tensor operations, model construction, and training.
 # The Keras serialisation utility ensures that custom objects (losses/metrics) 
-# can be saved and loaded with models.
+# can be saved together with models and correctly reloaded later.
 #
 import cv2
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.utils import register_keras_serializable
 
-class Losses:
+class LossFunctions:
     """
-    A collection of custom loss functions for image segmentation.
-    These are particularly useful for addressing class imbalance in medical datasets.
+    A collection of custom loss functions for medical image segmentation.
+    These are particularly useful for handling class imbalance, 
+    which is common in medical datasets.
     """
 
     @staticmethod
     @register_keras_serializable()
     def dice_loss(y_true, y_pred, smooth=1e-6):
         """
-        Dice loss, derived from the Dice coefficient, measures the overlap between
-        predicted and ground truth segmentation masks.
+        Dice loss, derived from the Dice coefficient, quantifies the overlap 
+        between predicted and ground truth segmentation masks.
 
         Args:
             y_true (tf.Tensor): Ground truth segmentation mask.
@@ -29,7 +30,7 @@ class Losses:
             smooth (float): Smoothing factor to avoid division by zero.
 
         Returns:
-            tf.Tensor: Dice loss value (lower is better).
+            tf.Tensor: Dice loss value (lower values indicate better performance).
         """
         y_true = tf.cast(y_true, tf.float32)
         y_pred = tf.cast(y_pred, tf.float32)
@@ -44,8 +45,9 @@ class Losses:
     @register_keras_serializable()
     def bce_dice_loss(y_true, y_pred):
         """
-        Hybrid loss combining Binary Cross-Entropy (BCE) and Dice loss.
-        Balances pixel-wise classification accuracy (BCE) with region overlap (Dice).
+        Hybrid loss that combines Binary Cross-Entropy (BCE) with Dice loss.
+        This balances pixel-wise classification accuracy (BCE) with region-level 
+        overlap quality (Dice).
 
         Args:
             y_true (tf.Tensor): Ground truth segmentation mask.
@@ -55,14 +57,14 @@ class Losses:
             tf.Tensor: Combined BCE–Dice loss.
         """
         bce = tf.keras.losses.binary_crossentropy(y_true, y_pred)
-        return 0.5 * bce + 0.5 * Losses.dice_loss(y_true, y_pred)
+        return 0.5 * bce + 0.5 * LossFunctions.dice_loss(y_true, y_pred)
 
     @staticmethod
     @register_keras_serializable()
     def combined_loss(y_true, y_pred):
         """
-        Alternative implementation of BCE–Dice loss.
-        Often improves performance on imbalanced segmentation tasks.
+        Alternative implementation of BCE–Dice hybrid loss.
+        This formulation is often more effective on imbalanced segmentation tasks.
 
         Args:
             y_true (tf.Tensor): Ground truth segmentation mask.
@@ -72,7 +74,7 @@ class Losses:
             tf.Tensor: Combined loss value.
         """
         bce = tf.keras.losses.binary_crossentropy(y_true, y_pred)
-        d_loss = Losses.dice_loss(y_true, y_pred)
+        d_loss = LossFunctions.dice_loss(y_true, y_pred)
         return 0.5 * bce + 0.5 * d_loss
 
     @staticmethod
@@ -80,13 +82,13 @@ class Losses:
     def tversky_loss(y_true, y_pred, alpha=0.7, beta=0.3, smooth=1e-6):
         """
         Tversky loss: a generalisation of Dice/Jaccard losses.
-        Allows differential weighting of false positives and false negatives.
+        Provides adjustable weighting for false positives and false negatives.
 
         Args:
             y_true (tf.Tensor): Ground truth segmentation mask.
             y_pred (tf.Tensor): Predicted segmentation mask.
-            alpha (float): Weight for false positives.
-            beta (float): Weight for false negatives.
+            alpha (float): Weight applied to false positives.
+            beta (float): Weight applied to false negatives.
             smooth (float): Smoothing factor.
 
         Returns:
@@ -105,31 +107,32 @@ class Losses:
     @register_keras_serializable()
     def focal_tversky_loss(y_true, y_pred, gamma=0.75):
         """
-        Focal Tversky loss: emphasises harder-to-classify pixels by raising 
-        the Tversky loss to a power (gamma). Useful for highly imbalanced data.
+        Focal Tversky loss: places greater emphasis on harder-to-classify pixels 
+        by raising the Tversky loss to the power of gamma. Particularly suitable 
+        for highly imbalanced datasets.
 
         Args:
             y_true (tf.Tensor): Ground truth segmentation mask.
             y_pred (tf.Tensor): Predicted segmentation mask.
-            gamma (float): Focusing parameter (higher values increase focus on hard cases).
+            gamma (float): Focusing parameter (higher values place more emphasis on difficult cases).
 
         Returns:
             tf.Tensor: Focal Tversky loss value.
         """
-        tversky = Losses.tversky_loss(y_true, y_pred)
+        tversky = LossFunctions.tversky_loss(y_true, y_pred)
         return tf.pow(tversky, gamma)
 
-class Metrics:
+class SegmentationMetrics:
     """
-    Custom evaluation metrics for segmentation.
-    Provide interpretable measures of model performance.
+    Custom evaluation metrics for segmentation tasks.
+    Provide interpretable and clinically meaningful measures of performance.
     """
 
     @staticmethod
     @register_keras_serializable()
     def dice_coef(y_true, y_pred, smooth=1e-6):
         """
-        Dice coefficient: measures similarity between prediction and ground truth.
+        Dice coefficient: quantifies similarity between predicted and ground truth masks.
 
         Args:
             y_true (tf.Tensor): Ground truth mask.
@@ -137,7 +140,7 @@ class Metrics:
             smooth (float): Smoothing factor.
 
         Returns:
-            tf.Tensor: Dice coefficient (higher is better).
+            tf.Tensor: Dice coefficient (higher values indicate better segmentation quality).
         """
         y_true = tf.cast(y_true, tf.float32)
         y_pred = tf.cast(y_pred > 0.5, tf.float32)
@@ -152,7 +155,7 @@ class Metrics:
     def jaccard_index(y_true, y_pred, smooth=1e-6):
         """
         Jaccard index (Intersection-over-Union, IoU): 
-        measures overlap between prediction and ground truth.
+        measures the degree of overlap between predicted and ground truth masks.
 
         Args:
             y_true (tf.Tensor): Ground truth mask.
@@ -160,7 +163,7 @@ class Metrics:
             smooth (float): Smoothing factor.
 
         Returns:
-            tf.Tensor: Jaccard index (higher is better).
+            tf.Tensor: Jaccard index (higher values indicate better segmentation quality).
         """
         y_true = tf.cast(y_true, tf.float32)
         y_pred = tf.cast(y_pred > 0.5, tf.float32)
@@ -170,32 +173,35 @@ class Metrics:
 
         return (intersection + smooth) / (union + smooth)
 
-class Similarities:
+class SimilarityMetrics:
     """
-    Additional similarity and accuracy measures 
-    based on pixel-wise and histogram-based comparisons.
+    Global similarity indicators based on both pixel-wise and histogram-based comparisons.
     """
 
     @staticmethod
     @register_keras_serializable()
-    def get_similarity_score(ground_truth, prediction):
+    def get_histogram_similarity(ground_truth, prediction):
         """
         Histogram-based similarity score using OpenCV correlation.
-        Compares pixel intensity distributions between ground truth and prediction.
+        Compares the intensity distributions of ground truth and predicted masks.
 
         Args:
             ground_truth (tf.Tensor): Ground truth mask.
             prediction (tf.Tensor): Predicted mask.
 
         Returns:
-            float: Similarity score (%) where 100 indicates perfect match.
+            float: Histogram similarity score (percentage). 
+                   100 indicates perfect similarity.
         """
         gt = ground_truth.numpy().astype('uint8')
         pred = prediction.numpy().astype('uint8')
 
-        if gt.ndim == 3 and gt.shape[-1] == 1: gt = gt.squeeze(-1)
-        if pred.ndim == 3 and pred.shape[-1] == 1: pred = pred.squeeze(-1)
+        if gt.ndim == 3 and gt.shape[-1] == 1: 
+            gt = gt.squeeze(-1)
+        if pred.ndim == 3 and pred.shape[-1] == 1: 
+            pred = pred.squeeze(-1)
 
+        # If prediction is empty but ground truth is not, similarity is zero
         if np.sum(pred) == 0 and np.sum(gt) != 0: 
             return 0.0
 
@@ -212,14 +218,16 @@ class Similarities:
     @register_keras_serializable()
     def get_pixel_accuracy(ground_truth, prediction):
         """
-        Pixel-wise accuracy: proportion of pixels classified correctly.
+        Pixel-wise accuracy: proportion of pixels classified correctly 
+        compared with the ground truth.
 
         Args:
             ground_truth (tf.Tensor): Ground truth mask.
             prediction (tf.Tensor): Predicted mask.
 
         Returns:
-            float: Pixel-wise accuracy (%) where 100 indicates perfect prediction.
+            float: Pixel-wise accuracy (percentage). 
+                   100 indicates a perfect prediction.
         """
         gt = ground_truth.numpy().astype(bool)
         pred = prediction.numpy().astype(bool)
