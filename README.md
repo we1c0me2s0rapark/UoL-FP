@@ -1,4 +1,4 @@
-`# breast-cancer-detection
+# breast-cancer-detection
 
 A deep learning system for automated breast cancer detection via mammographic image segmentation, using a modified U-Net architecture and a custom HN Adam optimiser.
 
